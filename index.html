@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+  <meta charset="UTF-8" />
+  <title>F1 Race Standings Search</title>
+  <link
+    rel="stylesheet"
+    href="https://cdn.datatables.net/1.13.5/css/jquery.dataTables.min.css"
+  />
+  <link href="https://fonts.googleapis.com/css2?family=Racing+Sans+One&display=swap" rel="stylesheet" />
+
+  <style>
+    body {
+       font-family: 'Racing Sans One', sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 20px;
+      background: #f0f2f5;
+      color: #222;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #d40000;
+      text-shadow: 1px 1px 2px #bbb;
+    }
+    form {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin-bottom: 30px;
+      flex-wrap: wrap;
+    }
+    input[type="number"],
+    input[type="text"] {
+      padding: 10px 15px;
+      font-size: 1rem;
+      border: 1.5px solid #ccc;
+      border-radius: 5px;
+      transition: border-color 0.3s ease;
+      width: 180px;
+    }
+    input[type="number"]:focus,
+    input[type="text"]:focus {
+      border-color: #d40000;
+      outline: none;
+      box-shadow: 0 0 5px rgba(212, 0, 0, 0.5);
+    }
+    button {
+      background-color: #d40000;
+      color: white;
+      border: none;
+      padding: 11px 25px;
+      font-size: 1.1rem;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      min-width: 100px;
+    }
+    button:hover {
+      background-color: #a30000;
+    }
+
+    /* Loader Lights Container */
+   /* Loader container dark background */
+#loader {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  align-content: center;
+   flex-direction: row; /* stack vertically */
+  gap: 15px;
+  margin-bottom: 25px;
+  visibility: hidden;
+  background: #000; /* black background */
+  padding: 20px 40px;
+  border-radius: 12px;
+  box-shadow: 0 0 30px #a00; /* subtle red glow */
+  max-width: fit-content;
+  margin: 0 auto 25px auto;
+}
+
+/* LED style lights */
+.light {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background-color: #220000; /* dark red base */
+  box-shadow:
+    inset 0 0 6px #550000,
+    0 0 10px #330000;
+  opacity: 0.3;
+  transition: background-color 0.3s ease, opacity 0.3s ease, box-shadow 0.3s ease;
+  filter: drop-shadow(0 0 3px #900);
+  animation: flicker 1.5s infinite alternate;
+}
+
+.light.active {
+  background-color: #ff0000; /* bright red LED */
+  opacity: 1;
+  box-shadow:
+    0 0 15px #ff0000,
+    0 0 30px #ff4444,
+    inset 0 0 10px #ff6666;
+  animation: none; /* stop flicker on active */
+}
+
+/* subtle flickering effect */
+@keyframes flicker {
+  0%, 100% { opacity: 0.3; filter: drop-shadow(0 0 2px #800); }
+  50% { opacity: 0.6; filter: drop-shadow(0 0 8px #f00); }
+}
+
+
+    /* Driver cell layout */
+    .driver-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: left;
+      padding-left: 20px;
+      font-weight: 600;
+    }
+    .driver-number {
+      font-weight: 700;
+      background: #d40000;
+      color: white;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 0.9rem;
+    }
+    .flag {
+      font-size: 1.4rem;
+      line-height: 1;
+    }
+    .team-cell {
+      font-weight: 600;
+      color: #333;
+    }
+
+    /* Slide-in animation for rows */
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateX(-50px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+    tbody tr {
+      animation: slideIn 0.5s ease forwards;
+    }
+  </style>
+</head>
+<body>
+  <h1>Search F1 Race Standings</h1>
+
+  <form id="searchForm" autocomplete="off">
+    <input
+      type="number"
+      id="year"
+      placeholder="Year (e.g. 2024)"
+      value="2024"
+      min="1950"
+      max="2100"
+      required
+    />
+    <input
+      type="text"
+      id="gp"
+      placeholder="Grand Prix (e.g. Monaco)"
+      value="Monaco"
+      required
+    />
+    <button type="submit">Search</button>
+  </form>
+
+  <!-- Loader lights like race start -->
+  <div id="loader">
+    
+    <div class="light"></div>
+    <div class="light"></div>
+    <div class="light"></div>
+    <div class="light"></div>
+    <div class="light"></div>
+    
+  </div>
+
+  <table id="resultsTable" class="display" style="display:none;">
+    <thead>
+      <tr>
+        <th>Position</th>
+        <th>Driver</th>
+        <th>Team</th>
+        <th>Points</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.5/js/jquery.dataTables.min.js"></script>
+
+  <script>
+    const form = document.getElementById('searchForm');
+    const table = $('#resultsTable');
+    const tbody = $('#resultsTable tbody');
+    const loader = document.getElementById('loader');
+    const lights = loader.querySelectorAll('.light');
+    let dataTable = null;
+
+    // Helper to get flag emoji from country code (ISO 3166-1 alpha-2)
+    // Input example: 'GB' => 🇬🇧, 'DE' => 🇩🇪
+    function getFlagEmoji(countryCode) {
+      if (!countryCode) return '';
+      const codePoints = countryCode
+        .toUpperCase()
+        .split('')
+        .map(char =>  127397 + char.charCodeAt());
+      return String.fromCodePoint(...codePoints);
+    }
+
+    // Race start lights animation sequence
+    async function startLightsAnimation() {
+      loader.style.visibility = 'visible';
+      for(let i=0; i < lights.length; i++){
+        lights[i].classList.add('active');
+        await new Promise(r => setTimeout(r, 700));
+      }
+    }
+     async function lightoff(){
+        await new Promise(r => setTimeout(r, 300)); // pause before turning off
+      for(let i=0; i < lights.length; i++){
+        lights[i].classList.remove('active');
+      }
+      loader.style.visibility = 'hidden';
+     }
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+
+      const year = document.getElementById('year').value.trim();
+      const gp = document.getElementById('gp').value.trim();
+
+      if (!year || !gp) {
+        alert('Please fill in all fields.');
+        return;
+      }
+
+      tbody.empty();
+      table.hide();
+
+      try {
+        // Start loader animation while fetching
+         await startLightsAnimation();
+
+        const response = await fetch(
+          `http://127.0.0.1:5000/race-standings?year=${year}&gp=${encodeURIComponent(gp)}`
+        );
+        await lightoff();
+        if (!response.ok) throw new Error('Failed to fetch data');
+
+        const data = await response.json();
+
+        if (data.error) {
+          alert(data.error);
+          return;
+        }
+
+        if (data.length === 0) {
+          alert('No results found!');
+          return;
+        }
+
+        // Destroy old DataTable instance if exists
+        if (dataTable) {
+          dataTable.destroy();
+          tbody.empty();
+        }
+
+        // Add rows with position and driver cell with number, name & flag
+        data.forEach((driver, index) => {
+          // Example: DriverCountryCode is assumed in driver.Nationality or driver.CountryCode
+          // You might need to adjust according to your data structure
+          // Here we assume driver.Nationality is a full country name, so we map to country code
+          // For demo, just use empty flag or fallback "US"
+          // Ideally you’d use a map or API to convert nationality => country code
+
+          // Simple hardcoded map for popular F1 countries:
+          const countryMap = {
+            "British": "GB",
+            "German": "DE",
+            "Spanish": "ES",
+            "Dutch": "NL",
+            "Finnish": "FI",
+            "Australian": "AU",
+            "Monegasque": "MC",
+            "Canadian": "CA",
+            "French": "FR",
+            "Italian": "IT",
+            "Brazilian": "BR",
+            "American": "US",
+            "Japanese": "JP",
+            "Russian": "RU",
+            "Mexican": "MX",
+            "Chinese": "CN",
+            "Indian": "IN",
+            "Thai": "TH",
+            "Austrian": "AT",
+            // add more if you want!
+          };
+
+          const countryCode = countryMap[driver.Nationality] || "";
+
+          const flagEmoji = getFlagEmoji(countryCode);
+
+          const tr = `
+            <tr>
+              <td>${index + 1}</td>
+              <td class="driver-cell">
+                <div class="driver-number">${driver.DriverNumber}</div>
+                <span>${driver.BroadcastName}</span>
+                <span class="flag">${flagEmoji}</span>
+              </td>
+              <td class="team-cell">${driver.TeamName || driver.Team || "Unknown"}</td>
+              <td>${driver.Points}</td>
+            </tr>
+          `;
+          tbody.append(tr);
+        });
+
+        table.show();
+
+        dataTable = table.DataTable({
+          paging: true,
+          searching: true,
+          info: true,
+          lengthChange: false,
+          pageLength: 10,
+          order: [[0, 'asc']],
+          language: {
+            emptyTable: "No data available for this GP."
+          }
+        });
+
+      } catch (err) {
+        alert('Something went wrong: ' + err.message);
+      }
+    });
+  </script>
+</body>
+</html>
